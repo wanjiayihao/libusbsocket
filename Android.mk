@@ -48,6 +48,7 @@ LOCAL_SRC_FILES += \
   src/collection.c \
   src/socket.c \
   src/libusbmuxd.c \
+  src/libjni.c
 
 
 
@@ -64,10 +65,10 @@ LOCAL_LDLIBS := -llog
 
 LOCAL_CFLAGS += -pie -fPIE
 
-LOCAL_MODULE := usbsocket
+LOCAL_MODULE := libusbsocket
 
-#include $(BUILD_SHARED_LIBRARY)
+include $(BUILD_SHARED_LIBRARY)
 
-
-LOCAL_SRC_FILES +=  src/maintest.c
-include $(BUILD_EXECUTABLE)
+#LOCAL_MODULE := libusbsocket
+#LOCAL_SRC_FILES +=  src/maintest.c
+#include $(BUILD_EXECUTABLE)

@@ -15,7 +15,7 @@
  *
  */
 #include <string.h>
-#include <jni.h>
+
 
 #include <errno.h>
 #include <unistd.h>
@@ -33,7 +33,11 @@
 #include <netinet/in.h>
 #include <time.h>
 
+#include <usbmuxd.h>
 
+
+
+#include <jni.h>
 
 
 /* This is a trivial JNI example where we use a native method
@@ -43,11 +47,116 @@
  *   apps/samples/hello-jni/project/src/com/example/hellojni/HelloJni.java
  */
 
-jbool  Java_com_szty_USBSocket_isDeviceConnect(JNIEnv* env,
-                                                  jobject thiz ){
+jboolean  Java_com_szty_USBSocket_nativeIsDeviceConnect(JNIEnv* env , jobject thiz )
+{
+
+	usbmuxd_device_info_t *dev_list = NULL;
+
+	int count = usbmuxd_get_device_list(&dev_list);
+
+	if(dev_list){
+		free(dev_list);
+	}
+	if ( count > 0) {
+		return JNI_TRUE;
+	}else{
+		return JNI_FALSE;
+	}
+}
 
 
+jstring  Java_com_szty_USBSocket_nativeGetDeviceUDID(JNIEnv* env , jobject thiz )
+{
+
+	usbmuxd_device_info_t *dev_list = NULL;
+
+	int count = usbmuxd_get_device_list(&dev_list);
+	jstring str =  NULL;
+
+	if(dev_list&&count>0){
+		str = (*env)->NewStringUTF(env,(const jchar*)dev_list->udid);
+		free(dev_list);
+	}else{
+		if(dev_list){
+			free(dev_list);
+		}
+		str = (*env)->NewStringUTF(env,(const jchar*)"no device");
+	}
+	return str;
+}
+
+
+jint  Java_com_szty_USBSocket_nativeConnectPort(JNIEnv* env , jobject thiz ,jint port )
+{
+
+	usbmuxd_device_info_t *dev_list = NULL;
+
+	int count = usbmuxd_get_device_list(&dev_list);
+	int handler = -1;
+	if(count <1 || dev_list == NULL){
+		if(dev_list){
+			free(dev_list);
+		}
+		return handler;
+	}
 	
+	handler = usbmuxd_connect(dev_list->handle, port);
+	free(dev_list);
+
+	return handler;
+
 
 }
+
+
+
+jint  Java_com_szty_USBSocket_nativeDisconnect(JNIEnv* env , jobject thiz ,jint handler )
+{
+	return usbmuxd_disconnect(handler);
+}
+
+jint  Java_com_szty_USBSocket_nativeSend(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray,
+                                                jint off, jint len)
+{
+	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	const char * data  = (const char *)b;
+	uint32_t sent_bytes = 0 ;
+	int ret =  usbmuxd_send(handler, data+off, len , &sent_bytes);
+
+	if(ret == 0){
+		return sent_bytes;
+	}else{
+		return ret;
+	}
+}
+
+jint  Java_com_szty_USBSocket_nativeReceive(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray,jint off , jint len)
+{
+	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	uint32_t recv_bytes=0;
+	char * data = (char *) b;
+	int ret = usbmuxd_recv(handler, data + off,  len, &recv_bytes);
+	if(ret ==0){
+		return recv_bytes;
+	}else{
+		return ret;
+	}
+}
+
+jint  Java_com_szty_USBSocket_nativeReceiveTimeout(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray ,jint off , jint len,jint timeout)
+{
+	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	uint32_t recv_bytes=0;
+	char * data = (char *) b;
+
+	int ret = usbmuxd_recv_timeout(handler, data+off,  len, &recv_bytes,timeout);
+	if(ret ==0){
+		return recv_bytes;
+	}else{
+		return ret;
+	}
+
+}
+
+
 
