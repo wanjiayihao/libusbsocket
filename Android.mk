@@ -48,7 +48,6 @@ LOCAL_SRC_FILES += \
   src/collection.c \
   src/socket.c \
   src/libusbmuxd.c \
-  src/iproxy.c
 
 
 
@@ -68,4 +67,7 @@ LOCAL_CFLAGS += -pie -fPIE
 LOCAL_MODULE := usbsocket
 
 #include $(BUILD_SHARED_LIBRARY)
+
+
+LOCAL_SRC_FILES +=  src/maintest.c
 include $(BUILD_EXECUTABLE)
