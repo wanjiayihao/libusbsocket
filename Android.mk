@@ -50,8 +50,6 @@ LOCAL_SRC_FILES += \
   src/libusbmuxd.c \
   src/libjni.c
 
-
-
 include external/stlport/libstlport.mk
 
 
@@ -59,10 +57,7 @@ include external/stlport/libstlport.mk
 LOCAL_SHARED_LIBRARIES += \
 	libcutils \
 	libutils \
-
-
-LOCAL_LDLIBS := -llog
-
+	
 LOCAL_CFLAGS += -pie -fPIE
 
 LOCAL_MODULE := libusbsocket

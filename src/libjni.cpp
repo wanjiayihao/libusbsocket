@@ -14,9 +14,20 @@
  * limitations under the License.
  *
  */
+
+#define LOG_TAG "device"
+
+
+
+#include <jni.h>
+#include <JNIHelp.h>
+
+#include <android_runtime/AndroidRuntime.h>
+#include <android_runtime/Log.h>
+
 #include <string.h>
 
-
+#include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -37,15 +48,16 @@
 
 
 
-#include <jni.h>
-
-
 /* This is a trivial JNI example where we use a native method
  * to return a new VM String. See the corresponding Java source
  * file located at:
  *
  *   apps/samples/hello-jni/project/src/com/example/hellojni/HelloJni.java
  */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 jboolean  Java_com_szty_USBSocket_nativeIsDeviceConnect(JNIEnv* env , jobject thiz )
 {
@@ -74,13 +86,13 @@ jstring  Java_com_szty_USBSocket_nativeGetDeviceUDID(JNIEnv* env , jobject thiz 
 	jstring str =  NULL;
 
 	if(dev_list&&count>0){
-		str = (*env)->NewStringUTF(env,(const jchar*)dev_list->udid);
+		str = env->NewStringUTF((const char*)dev_list->udid);
 		free(dev_list);
 	}else{
 		if(dev_list){
 			free(dev_list);
 		}
-		str = (*env)->NewStringUTF(env,(const jchar*)"no device");
+		str = env->NewStringUTF((const char*)"no device");
 	}
 	return str;
 }
@@ -118,12 +130,12 @@ jint  Java_com_szty_USBSocket_nativeDisconnect(JNIEnv* env , jobject thiz ,jint 
 jint  Java_com_szty_USBSocket_nativeSend(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray,
                                                 jint off, jint len)
 {
-	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	jbyte* b = env->GetByteArrayElements(bArray, NULL);
 	const char * data  = (const char *)b;
 	uint32_t sent_bytes = 0 ;
 	int ret =  usbmuxd_send(handler, data+off, len , &sent_bytes);
 
-	(*env)->ReleaseByteArrayElements(env,bArray, b, 0);
+	env->ReleaseByteArrayElements(bArray, b, 0);
 
 	if(ret == 0){
 		return sent_bytes;
@@ -134,11 +146,11 @@ jint  Java_com_szty_USBSocket_nativeSend(JNIEnv* env , jobject thiz ,jint handle
 
 jint  Java_com_szty_USBSocket_nativeReceive(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray,jint off , jint len)
 {
-	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	jbyte* b = env->GetByteArrayElements(bArray, NULL);
 	uint32_t recv_bytes=0;
 	char * data = (char *) b;
 	int ret = usbmuxd_recv(handler, data + off,  len, &recv_bytes);
-	(*env)->ReleaseByteArrayElements(env,bArray, b, 0);
+	env->ReleaseByteArrayElements(bArray, b, 0);
 
 	if(ret ==0){
 		return recv_bytes;
@@ -149,13 +161,13 @@ jint  Java_com_szty_USBSocket_nativeReceive(JNIEnv* env , jobject thiz ,jint han
 
 jint  Java_com_szty_USBSocket_nativeReceiveTimeout(JNIEnv* env , jobject thiz ,jint handler , jbyteArray bArray ,jint off , jint len,jint timeout)
 {
-	jbyte* b = (*env)->GetByteArrayElements(env,bArray, NULL);
+	jbyte* b = env->GetByteArrayElements(bArray, NULL);
 	uint32_t recv_bytes=0;
 	char * data = (char *) b;
 
 	int ret = usbmuxd_recv_timeout(handler, data+off,  len, &recv_bytes,timeout);
 
-	(*env)->ReleaseByteArrayElements(env,bArray, b, 0);
+	env->ReleaseByteArrayElements(bArray, b, 0);
 
 	if(ret ==0){
 		return recv_bytes;
@@ -168,62 +180,138 @@ jint  Java_com_szty_USBSocket_nativeReceiveTimeout(JNIEnv* env , jobject thiz ,j
  static JavaVM*  jvm = NULL;
  static jobject ObjExtern = NULL;
  static jmethodID method_onEvent = NULL;
+ static jclass thisClass;
+
+
+
+
+static jint attach_thread(JNIEnv** env) {
+    JavaVM* java_vm = android::AndroidRuntime::getJavaVM();
+    assert(java_vm != NULL);
+
+    JavaVMAttachArgs args = {
+        JNI_VERSION_1_6,
+        "ActivityRecognition HAL callback.",
+        NULL /* group */
+    };
+
+    jint result = java_vm->AttachCurrentThread(env, &args);
+    if (result != JNI_OK) {
+        ALOGE("Attach to callback thread failed: %d", result);
+    }
+
+    return result;
+}
+
+static jint detach_thread() {
+    JavaVM* java_vm = android::AndroidRuntime::getJavaVM();
+    assert(java_vm != NULL);
+
+    jint result = java_vm->DetachCurrentThread();
+    if (result != JNI_OK) {
+        ALOGE("Detach of callback thread failed: %d", result);
+    }
+
+    return result;
+}
 
 static void  usbDeviceCallback (const usbmuxd_event_t *event, void *user_data){
 
 	JNIEnv* env = NULL ;
 
-	(*jvm)->AttachCurrentThread(jvm,&env,NULL);
-	if(env == NULL){
-		return ;
-	}
-
- 	jclass clazz;
-    clazz = (*env)->FindClass(env,"com/szty/USBSocket");
-    if(clazz == NULL){
-    	return ;
+	int result = attach_thread(&env);
+    if (result != JNI_OK) {
+    	ALOGE("Unable to attach thread with JNI.");
+        return;
+    }else{
+    	ALOGD("attach_thread is ok ");
     }
 
-	method_onEvent =  (*env)->GetStaticMethodID(env,clazz, "eventCallback", "(IIILjava/lang/String;)V");
+	// thisClass = env->FindClass("com/szty/USBSocket");
+ //    if(thisClass == NULL){
+
+ //    	ALOGE("find eventCallback   find class error  .");
+ //    	return ;
+ //    }
+
+	method_onEvent =  env->GetStaticMethodID(thisClass, "eventCallback", "(IIILjava/lang/String;)V");
 	if(method_onEvent == NULL){
+		ALOGE("find eventCallback   method id error .");
 		return ;
 	}
+ 
 
-	jstring udid = (*env)->NewStringUTF(env,(const jchar*)event->device.udid);
-	(*env)->CallStaticVoidMethod(env, clazz ,method_onEvent, event->event, event->device.handle,event->device.product_id,udid );
+	
+	
+	jstring udid = env->NewStringUTF((const char*)event->device.udid);
+	env->CallStaticVoidMethod( thisClass ,method_onEvent, event->event, event->device.handle,event->device.product_id,udid );
 
 	if(udid != NULL){
-		(*env)->DeleteLocalRef(env,udid);
+		env->DeleteLocalRef(udid);
 	}
 
-	(*jvm)->DetachCurrentThread(jvm);
+	detach_thread();
+
+}
+
+
+static void *run_stoc_loop(void *arg){
+		usbmuxd_event_t event;
+		event.event = 1;
+		event.device.handle = 2;
+		event.device.product_id = 3;
+		strcpy(event.device.udid,"hello test");
+
+		usbDeviceCallback(&event,NULL);
+		
+		return NULL;
+}
+
+
+pthread_t  stoc;
+
+
+void startClient(){
+
+	//usbmuxd_unsubscribe();
+	stoc = pthread_create(&stoc, NULL, run_stoc_loop, NULL);
+	pthread_join(stoc, NULL);
 }
 
 
 jboolean  Java_com_szty_USBSocket_nativeSubscribe(JNIEnv* env , jobject thiz)
 {
-	    jclass clazz;
-    	clazz = (*env)->FindClass(env,"com/szty/USBSocket");
-    	if(clazz == NULL){
+
+    	thisClass = env->FindClass("com/szty/USBSocket");
+    	if(thisClass == NULL){
+
+    		ALOGE("find eventCallback   find class error  .");
     		return JNI_FALSE;
     	}
 
-
-		(*env)->GetJavaVM(env,&jvm);
-
-		if(jvm == NULL){
+		method_onEvent =  env->GetStaticMethodID(thisClass, "eventCallback", "(IIILjava/lang/String;)V");
+		if(method_onEvent == NULL){
+			ALOGE("find eventCallback   method id error .");
 			return JNI_FALSE;
 		}
+		// env->GetJavaVM(&jvm);
 
+		// if(jvm == NULL){
+		// 	return JNI_FALSE;
+		// }
 
-		// usbmuxd_event_t event;
-		// event.event = 1;
-		// event.device.handle = 2;
-		// event.device.product_id = 3;
-		// strcpy(event.device.udid,"hello test");
+		jstring udid = NULL;
+		usbmuxd_event_t event;
+		event.event = 1;
+		event.device.handle = 2;
+		event.device.product_id = 3;
+		strcpy(event.device.udid,"hello test");
 
 		//usbDeviceCallback(&event,NULL);
-		//(*env)->CallVoidMethod(env,thiz, method_onEvent, event.event, event.device.handle,event.device.product_id,NULL );
+		env->CallStaticVoidMethod( thisClass ,method_onEvent, event.event, event.device.handle,event.device.product_id,udid );
+
+
+		startClient();
 
 
 		//return JNI_TRUE;
@@ -240,5 +328,7 @@ void  Java_com_szty_USBSocket_nativeUnSubscribe(JNIEnv* env , jobject thiz){
 }
 
 
-
+#ifdef __cplusplus
+}
+#endif
 
