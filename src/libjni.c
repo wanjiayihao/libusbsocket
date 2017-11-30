@@ -14,6 +14,8 @@
  * limitations under the License.
  *
  */
+#define LOG_TAG "device"
+
 #include <string.h>
 
 
@@ -35,7 +37,9 @@
 
 #include <usbmuxd.h>
 
+#include <cutils/sockets.h>
 
+#include <utils/Log.h>
 
 #include <jni.h>
 
@@ -165,68 +169,34 @@ jint  Java_com_szty_USBSocket_nativeReceiveTimeout(JNIEnv* env , jobject thiz ,j
 
 }
 
- static JavaVM*  jvm = NULL;
- static jobject ObjExtern = NULL;
- static jmethodID method_onEvent = NULL;
 
 static void  usbDeviceCallback (const usbmuxd_event_t *event, void *user_data){
+	ALOGD("device callback %d    %s ",event->event,event->device.udid);
 
-	JNIEnv* env = NULL ;
+	int socket = socket_local_client("com.szty.usbsocket.event", ANDROID_SOCKET_NAMESPACE_ABSTRACT , SOCK_STREAM);
+	if(socket > 0){
+		char buf[64];
+		sprintf(buf,"%d;%d;%d;%s",event->event,event->device.handle,event->device.product_id,event->device.udid);
 
-	(*jvm)->AttachCurrentThread(jvm,&env,NULL);
-	if(env == NULL){
-		return ;
+		int sent = socket_send(socket, buf, strlen(buf));
+		if (sent != strlen(buf)) {
+			ALOGE("%s: ERROR: could not send packet header\n", __func__);
+		}else{
+			ALOGD("device callback send message ok:%s",buf);
+		}
+
+		socket_close(socket);
+	}else{
+		ALOGD("device callback connect socket error ");
 	}
 
- 	jclass clazz;
-    clazz = (*env)->FindClass(env,"com/szty/USBSocket");
-    if(clazz == NULL){
-    	return ;
-    }
-
-	method_onEvent =  (*env)->GetStaticMethodID(env,clazz, "eventCallback", "(IIILjava/lang/String;)V");
-	if(method_onEvent == NULL){
-		return ;
-	}
-
-	jstring udid = (*env)->NewStringUTF(env,(const jchar*)event->device.udid);
-	(*env)->CallStaticVoidMethod(env, clazz ,method_onEvent, event->event, event->device.handle,event->device.product_id,udid );
-
-	if(udid != NULL){
-		(*env)->DeleteLocalRef(env,udid);
-	}
-
-	(*jvm)->DetachCurrentThread(jvm);
 }
 
 
 jboolean  Java_com_szty_USBSocket_nativeSubscribe(JNIEnv* env , jobject thiz)
 {
-	    jclass clazz;
-    	clazz = (*env)->FindClass(env,"com/szty/USBSocket");
-    	if(clazz == NULL){
-    		return JNI_FALSE;
-    	}
+		usbmuxd_unsubscribe();
 
-
-		(*env)->GetJavaVM(env,&jvm);
-
-		if(jvm == NULL){
-			return JNI_FALSE;
-		}
-
-
-		// usbmuxd_event_t event;
-		// event.event = 1;
-		// event.device.handle = 2;
-		// event.device.product_id = 3;
-		// strcpy(event.device.udid,"hello test");
-
-		//usbDeviceCallback(&event,NULL);
-		//(*env)->CallVoidMethod(env,thiz, method_onEvent, event.event, event.device.handle,event.device.product_id,NULL );
-
-
-		//return JNI_TRUE;
 		int ret  = usbmuxd_subscribe(usbDeviceCallback,NULL);
 		if(ret ==0){
 			return JNI_TRUE;

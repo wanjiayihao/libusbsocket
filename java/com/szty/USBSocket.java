@@ -1,5 +1,7 @@
 package com.szty;
 
+import android.net.LocalServerSocket;
+import android.net.LocalSocket;
 import android.os.Debug;
 import android.provider.Settings;
 import android.util.Log;
@@ -31,10 +33,22 @@ public class USBSocket {
     private native int nativeReceive(int handle , byte buf[] , int off,int len);
     private native int nativeReceiveTimeout(int handle , byte buf[] , int off,int len,int  timeout);
 
+    private native boolean nativeSubscribe();
+    private native boolean nativeUnSubscribe();
 
-    private static final boolean    DebugWifi= true;
+    private static final boolean    DebugWifi= false;
     private static final String     ipaddress = "192.168.3.110";
     private Socket  mDebugSocket = null;
+
+
+
+
+
+    public USBSocket(){
+        Log.d("device"," iphone device:"+nativeGetDeviceUDID());
+        //nativeSubscribe();
+        startEventListener();
+    }
 
     public String getDeviceUDID(){
         if(DebugWifi){
@@ -149,14 +163,80 @@ public class USBSocket {
             }
             mDebugSocket  = null;
        }
-
-        if(mSocket == 0) {
-            return;
-        }
+       if(mSocket == 0) {
+           return;
+       }
 
         nativeDisconnect(mSocket);
         mSocket= 0;
 
     }
+
+
+
+
+
+    private static LocalServerSocket  mLocalServer = null;
+    public void startEventListener(){
+        if(mLocalServer != null){
+            return ;
+        }
+
+        Thread thread = new Thread(){
+
+            @Override
+            public void run() {
+
+                byte buf[] = new byte[128];
+                try {
+                    mLocalServer = new LocalServerSocket("com.szty.usbsocket.event");
+                    nativeSubscribe();
+
+                    while(true){
+                        LocalSocket localSocket = mLocalServer.accept();
+                        int len = localSocket.getInputStream().read(buf);
+                        if(len > 0) {
+                            String str = new String(buf, 0, len);
+                            Log.d("device","java receive message :"+str);
+                            String list[] =  str.split(";");
+                            int event =  Integer.valueOf(list[0]);
+                            int handle = Integer.valueOf(list[1]);
+                            int product_id = Integer.valueOf(list[2]);
+                            String udid = list[3];
+
+                            if(mListener != null){
+                                mListener.onEvent(event,handle,product_id,udid);
+                            }
+                        }
+
+                        localSocket.close();
+                    }
+
+                }catch (Exception e){
+                    Log.d("device","local server error ",e);
+                }
+
+            }
+        };
+        thread.start();
+    }
+
+
+
+    public interface DeviceEventListener{
+        public void onEvent(int event,int handle , int product_id,String udid);
+    }
+
+
+    private DeviceEventListener  mListener = null;
+
+    public void setDeviceEventListener(DeviceEventListener listener){
+        mListener = null;
+    }
+
+    public static final int UE_DEVICE_ADD = 1;
+    public static final int UE_DEVICE_REMOVE = 2;
+    public static final int UE_DEVICE_PAIRED = 3;
+
 
 }
